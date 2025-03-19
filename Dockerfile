@@ -8,7 +8,7 @@ WORKDIR /youtube-api-files
 COPY --from=root-certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY . .
 RUN go mod vendor
-RUN CGO_ENABLED=0 go build -mod=vendor -o ./youtube-stats ./app/./...
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=vendor -o ./youtube-stats ./app/./...
 
 FROM scratch as final
 COPY --from=root-certs /etc/passwd /etc/passwd
