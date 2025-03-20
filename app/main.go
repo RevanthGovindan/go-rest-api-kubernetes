@@ -1,38 +1,76 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/julienschmidt/httprouter"
 )
 
-var roMap map[int]string = map[int]string{
-	1:    "I",
-	4:    "IV",
-	5:    "V",
-	9:    "IX",
-	10:   "X",
-	40:   "XL",
-	50:   "L",
-	90:   "XC",
-	100:  "C",
-	400:  "CD",
-	500:  "D",
-	900:  "CM",
-	1000: "M",
-}
+func newRouter() *httprouter.Router {
+	mux := httprouter.New()
+	ytApiKey := os.Getenv("YOUTUBE_API_KEY")
+	ytChannelID := os.Getenv("YOUTUBE_CHANNEL_ID")
 
-var arr = []int{1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1}
-
-func intToRoman(num int) string {
-	var result = ""
-	for _, a := range arr {
-		for num >= a {
-			num -= a
-			result += string(roMap[a])
-		}
+	if ytApiKey == "" {
+		log.Fatal("youtube API key not provided")
 	}
-	return result
+
+	if ytChannelID == "" {
+		log.Fatal("youtube channel ID not provided")
+	}
+
+	mux.GET("/youtube/channel/stats", getChannelStats(ytApiKey, ytChannelID))
+
+	return mux
 }
 
 func main() {
-	fmt.Println(intToRoman(3749))
+
+	srv := &http.Server{
+		Addr:    ":10101",
+		Handler: newRouter(),
+	}
+
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		sigint := make(chan os.Signal, 1)
+		signal.Notify(sigint, os.Interrupt)
+		signal.Notify(sigint, syscall.SIGTERM)
+		<-sigint
+
+		log.Println("service interrupt received")
+
+		log.Println("http server shutting down")
+		time.Sleep(5 * time.Second)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("http server shutdown error: %v", err)
+		}
+
+		log.Println("shutdown complete")
+
+		close(idleConnsClosed)
+
+	}()
+
+	log.Printf("Starting server on port 10101")
+	if err := srv.ListenAndServe(); err != nil {
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("fatal http server failed to start: %v", err)
+		}
+	}
+
+	<-idleConnsClosed
+	log.Println("Service Stop")
+
 }
